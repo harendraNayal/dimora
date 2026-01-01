@@ -1,5 +1,6 @@
 package com.hsnayal.dimora
 
+import DimoraScreen
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -7,34 +8,29 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.Switch
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        requestNotificationPermissionIfNeeded()
 
         // ✅ Correct edge-to-edge with BLACK system bars
         enableEdgeToEdge(
@@ -44,6 +40,39 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+
+                val context = LocalContext.current
+                val lifecycleOwner = LocalLifecycleOwner.current
+
+                var showPermissionDialog by remember {
+                    mutableStateOf(!Settings.canDrawOverlays(context))
+                }
+
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            showPermissionDialog = !Settings.canDrawOverlays(context)
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
+                if (showPermissionDialog) {
+                    OverlayPermissionDialog(
+                        onContinue = {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    "package:$packageName".toUri()
+                                )
+                            )
+                        }
+                    )
+                }
+
                 DimoraScreen(
                     onEnable = { enableDimmer() },
                     onDisable = { disableDimmer() },
@@ -53,16 +82,31 @@ class MainActivity : ComponentActivity() {
                     },
                     onRedModeChange = { enabled ->
                         updateMode(
-                            if (enabled)
-                                DimmerService.MODE_RED
-                            else
-                                DimmerService.MODE_NORMAL
+                            if (enabled) DimmerService.MODE_RED
+                            else DimmerService.MODE_NORMAL
                         )
-                    }
+                    },
                 )
             }
         }
     }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    101
+                )
+            }
+        }
+    }
+
 
     private fun updateMode(mode: String) {
         val intent = Intent(this, DimmerService::class.java).apply {
@@ -116,78 +160,6 @@ class MainActivity : ComponentActivity() {
             putExtra(DimmerService.EXTRA_OPACITY, opacity.coerceIn(0f, 1f))
         }
         startService(intent)
-    }
-}
-
-@Composable
-fun DimoraScreen(
-    onEnable: () -> Unit,
-    onDisable: () -> Unit,
-    onSliderChange: (Float) -> Unit,
-    onRedModeChange: (Boolean) -> Unit
-) {
-    var sliderValue by remember { mutableFloatStateOf(1f) }
-    var redMode by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        Text(
-            text = "Dimora",
-            style = MaterialTheme.typography.headlineLarge
-        )
-
-        Text(
-            text = if (redMode)
-                "🔴 Red OLED Night Mode"
-            else
-                "🌙 Normal Dim Mode"
-        )
-
-        Slider(
-            value = sliderValue,
-            onValueChange = {
-                sliderValue = it
-                onSliderChange(it)
-            },
-            valueRange = 0f..1f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)   // ✅ minimum touch target
-                .padding(vertical = 12.dp) // ✅ increases touch area
-        )
-
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Red OLED Mode")
-            Switch(
-                checked = redMode,
-                onCheckedChange = {
-                    redMode = it
-                    onRedModeChange(it)
-                }
-            )
-        }
-
-        Button(
-            onClick = onEnable,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Enable Dimmer")
-        }
-
-        OutlinedButton(
-            onClick = onDisable,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Disable Dimmer")
-        }
     }
 }
 
