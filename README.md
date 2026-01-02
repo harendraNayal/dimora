@@ -1,4 +1,4 @@
-Privacy Policy – Dimora
+Privacy Policy – Dimora Night
 
 Dimora does not collect, store, or share any personal or sensitive user data.
 
